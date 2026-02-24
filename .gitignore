@@ -11,8 +11,6 @@ __pycache__/
 .DS_Store
 
 # Data files
-data/*.csv
-data/*.log
 
 # Virtual environments
 venv/
