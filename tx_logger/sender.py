@@ -1,16 +1,5 @@
-"""
-sender.py
-
-Purpose:
-Sends transactions on Sepolia and logs metadata.
-Does NOT track confirmations.
-
-Output:
-data/sent_transactions.csv
-"""
-
-import os
 import csv
+import os
 import time
 import random
 from web3 import Web3
@@ -20,28 +9,23 @@ from dotenv import load_dotenv
 # =========================
 # CONFIG
 # =========================
-
 load_dotenv()
 RPC_URL = os.getenv("RPC_URL")
 PRIVATE_KEY = os.getenv("PRIVATE_KEY")
 CHAIN_ID = 11155111  # Sepolia
-TOTAL_TRANSACTIONS = 500  # Change as needed
-CSV_PATH = "data/sent_transactions.csv"
+
+TOTAL_TRANSACTIONS = 500
+
+CSV_PATH = os.getenv("TX_OUTCOMES_CSV_PATH")
 
 # =========================
 # WEB3 SETUP
 # =========================
-
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 account = w3.eth.account.from_key(PRIVATE_KEY)
-address = account.address
 
 print("Using RPC:", RPC_URL)
-print("Wallet address:", address)
-
-# =========================
-# FILE SETUP
-# =========================
+print("Wallet address:", account.address)
 
 os.makedirs("data", exist_ok=True)
 
@@ -50,28 +34,27 @@ if not os.path.isfile(CSV_PATH):
     with open(CSV_PATH, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "rpc_url",
+            "rpc_id",
             "send_time",
             "tx_hash",
-            "nonce",
-            "gas_price"
+            "block_number",
+            "confirmation_time",
+            "confirmation_delay_seconds"
         ])
 
 # =========================
-# TRANSACTION LOOP
+# SENDER LOOP
 # =========================
-
-nonce = w3.eth.get_transaction_count(account.address)
-
 for i in range(TOTAL_TRANSACTIONS):
-
     try:
         print(f"\nSending transaction {i+1}/{TOTAL_TRANSACTIONS}")
 
+        nonce = w3.eth.get_transaction_count(account.address)
+
         tx = {
             "nonce": nonce,
-            "to": address,  # self-transfer for experiment
-            "value": 0,
+            "to": account.address,
+            "value": w3.to_wei(0, "ether"),
             "gas": 21000,
             "gasPrice": w3.eth.gas_price,
             "chainId": CHAIN_ID,
@@ -84,29 +67,25 @@ for i in range(TOTAL_TRANSACTIONS):
 
         print("Transaction sent:", tx_hash.hex())
 
-        # Log send data
+        # Log the transaction as 'pending' or partially filled
         with open(CSV_PATH, "a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow([
                 RPC_URL,
                 send_time.isoformat(),
                 tx_hash.hex(),
-                nonce,
-                tx["gasPrice"]
+                "PENDING",
+                "PENDING",
+                "PENDING"
             ])
 
-        print("Data logged.")
-
-        nonce += 1
-
-        # Random sleep between 30–35 seconds (original code had 5–10 minutes comment)
+        # Wait 30–35 seconds (per your code)
         sleep_time = random.randint(30, 35)
         print(f"Sleeping for {sleep_time} seconds...")
         time.sleep(sleep_time)
 
     except Exception as e:
-        print("Error occurred:", e)
-        print("Retrying in 60 seconds...")
+        print("Error occurred in sender:", e)
         time.sleep(60)
 
 print("\nFinished sending transactions.")
