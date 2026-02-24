@@ -27,7 +27,7 @@ engine = create_engine(
     f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_NAME}"
 )
 
-POLL_INTERVAL = 10  # seconds
+POLL_INTERVAL = 7  # seconds
 
 
 def measure_rpc(rpc_id, url):
