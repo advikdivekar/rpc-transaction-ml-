@@ -1,91 +1,92 @@
-import csv
-import os
 import time
+import os
 import random
-from web3 import Web3
+import pandas as pd
 from datetime import datetime
+from web3 import Web3
 from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
 
-# =========================
-# CONFIG
-# =========================
 load_dotenv()
-RPC_URL = os.getenv("RPC_URL")
+
+# Setup
+RPC_LIST = [
+    os.getenv("INFURA_RPC_URL"),
+    "https://ethereum-sepolia.publicnode.com",
+    "https://sepolia.drpc.org"
+]
 PRIVATE_KEY = os.getenv("PRIVATE_KEY")
-CHAIN_ID = 11155111  # Sepolia
+MY_ADDRESS = os.getenv("MY_ADDRESS")
+engine = create_engine(os.getenv("DATABASE_URL"))
 
-TOTAL_TRANSACTIONS = 500
-
-CSV_PATH = os.getenv("TX_OUTCOMES_CSV_PATH")
-
-# =========================
-# WEB3 SETUP
-# =========================
-w3 = Web3(Web3.HTTPProvider(RPC_URL))
-account = w3.eth.account.from_key(PRIVATE_KEY)
-
-print("Using RPC:", RPC_URL)
-print("Wallet address:", account.address)
-
-os.makedirs("data", exist_ok=True)
-
-# Create CSV header if file does not exist
-if not os.path.isfile(CSV_PATH):
-    with open(CSV_PATH, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            "rpc_id",
-            "send_time",
-            "tx_hash",
-            "block_number",
-            "confirmation_time",
-            "confirmation_delay_seconds"
-        ])
-
-# =========================
-# SENDER LOOP
-# =========================
-for i in range(TOTAL_TRANSACTIONS):
+def send_tx():
+    # 1. Pick a random RPC
+    rpc_url = random.choice([url for url in RPC_LIST if url])
+    w3 = Web3(Web3.HTTPProvider(rpc_url))
+    
+    print(f"Attempting TX via {rpc_url}...")
+    
     try:
-        print(f"\nSending transaction {i+1}/{TOTAL_TRANSACTIONS}")
-
-        nonce = w3.eth.get_transaction_count(account.address)
-
+        # 2. Build TX
+        nonce = w3.eth.get_transaction_count(MY_ADDRESS)
         tx = {
-            "nonce": nonce,
-            "to": account.address,
-            "value": w3.to_wei(0, "ether"),
-            "gas": 21000,
-            "gasPrice": w3.eth.gas_price,
-            "chainId": CHAIN_ID,
+            'nonce': nonce,
+            'to': MY_ADDRESS,
+            'value': w3.to_wei(0.00001, 'ether'),
+            'gas': 21000,
+            'gasPrice': w3.eth.gas_price,
+            'chainId': 11155111
+        }
+        
+        # 3. Sign & Send
+        signed_tx = w3.eth.account.sign_transaction(tx, PRIVATE_KEY)
+        start_time = time.time()
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+        
+        # 4. Wait for Receipt
+        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+        duration = time.time() - start_time
+        
+        print(f"✅ Confirmed in {duration:.2f}s")
+        return {
+            "timestamp": datetime.utcnow(),
+            "rpc_url": rpc_url,
+            "tx_hash": tx_hash.hex(),
+            "duration_sec": duration,
+            "status": 1
         }
 
-        send_time = datetime.utcnow()
-
-        signed_tx = account.sign_transaction(tx)
-        tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-
-        print("Transaction sent:", tx_hash.hex())
-
-        # Log the transaction as 'pending' or partially filled
-        with open(CSV_PATH, "a", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                RPC_URL,
-                send_time.isoformat(),
-                tx_hash.hex(),
-                "PENDING",
-                "PENDING",
-                "PENDING"
-            ])
-
-        # Wait 30–35 seconds (per your code)
-        sleep_time = random.randint(30, 35)
-        print(f"Sleeping for {sleep_time} seconds...")
-        time.sleep(sleep_time)
-
     except Exception as e:
-        print("Error occurred in sender:", e)
-        time.sleep(60)
+        print(f"❌ Failed: {e}")
+        return {
+            "timestamp": datetime.utcnow(),
+            "rpc_url": rpc_url,
+            "tx_hash": "FAILED",
+            "duration_sec": 120, # Penalty
+            "status": 0
+        }
 
-print("\nFinished sending transactions.")
+def main():
+    # Create Table
+    with engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS tx_outcomes (
+                timestamp TIMESTAMP, rpc_url TEXT, tx_hash TEXT, 
+                duration_sec FLOAT, status INT
+            );
+        """))
+        conn.commit()
+
+    # Run Loop (Send 200 TXs)
+    for i in range(200):
+        data = send_tx()
+        
+        # Save to DB
+        df = pd.DataFrame([data])
+        df.to_sql("tx_outcomes", engine, if_exists="append", index=False)
+        
+        print("Waiting 3s...")
+        time.sleep(3)
+
+if __name__ == "__main__":
+    main()
