@@ -1,0 +1,8 @@
+web3
+pandas
+scikit-learn
+xgboost
+python-dotenv
+sqlalchemy
+psycopg2-binary
+schedule
