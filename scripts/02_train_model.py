@@ -1,8 +1,11 @@
 import sys
 import os
 
-# Append project root to system path to allow module imports.
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# CRITICAL FIX: Use insert(0, ...) instead of append()
+# This forces Python to prioritize your project's 'config' and 'src' folders 
+# over any background system libraries with the same names.
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, PROJECT_ROOT)
 
 from src.database import db
 from src.model import RPCLatencyPredictor

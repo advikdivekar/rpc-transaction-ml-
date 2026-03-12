@@ -12,74 +12,82 @@ class RPCLatencyPredictor:
     """
     
     def __init__(self):
-        # Initialize the XGBoost Regressor with squared error objective.
-        # n_estimators=100 provides a balance between underfitting and overfitting.
         self.model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=100)
-        
-        # input features:
-        # 1. latency_ms: Network round-trip time.
-        # 2. block_lag: Sync status relative to the network head.
         self.features = ['latency_ms', 'block_lag']
-        
-        # target variable: Actual confirmation duration in seconds.
         self.target = 'duration_sec'
 
     def _clean_rpc_name(self, url: str) -> str:
         """
-        Normalizes provider URLs to standard identifiers (e.g., 'infura').
-        This ensures consistency between the metrics table and the transaction table.
+        Normalizes provider URLs to standard identifiers.
+        Hardcoded to ensure historical data matches even if settings change.
         """
         url = str(url).lower()
-        for name in RPC_PROVIDERS.keys():
-            if name in url:
-                return name
+        if "infura" in url: return "infura"
+        if "alchemy" in url: return "alchemy"
+        if "drpc" in url: return "drpc"
+        if "publicnode" in url: return "publicnode"
         return "unknown"
 
     def train(self, tx_df: pd.DataFrame, rpc_df: pd.DataFrame):
-        """
-        Executes the training pipeline.
-        
-        Args:
-            tx_df: Historical transaction outcomes (ground truth).
-            rpc_df: Historical network health metrics (features).
-        """
         print("[INFO] Preprocessing data for training...")
+        print(f"[DEBUG] Starting rows -> TX: {len(tx_df)}, RPC: {len(rpc_df)}")
         
-        # --- Data Standardization ---
-        # Map full URLs to short identifiers for merging.
+        # PEEK AT THE RAW DATA to see what Excel did
+        print(f"[DEBUG] Raw TX Timestamp Example: {tx_df['timestamp'].iloc[0]} (Type: {type(tx_df['timestamp'].iloc[0])})")
+        
+        # 1. Force numeric types safely
+        rpc_df['latency_ms'] = pd.to_numeric(rpc_df['latency_ms'], errors='coerce')
+        rpc_df['block_lag'] = pd.to_numeric(rpc_df['block_lag'], errors='coerce')
+        tx_df['duration_sec'] = pd.to_numeric(tx_df['duration_sec'], errors='coerce')
+        tx_df['status'] = pd.to_numeric(tx_df['status'], errors='coerce')
+        
+        # 2. Clean RPC names
         tx_df['rpc_id'] = tx_df['rpc_url'].apply(self._clean_rpc_name)
         
-        # Convert timestamps to UTC to ensure accurate temporal alignment.
-        tx_df['timestamp'] = pd.to_datetime(tx_df['timestamp'], utc=True)
-        rpc_df['timestamp'] = pd.to_datetime(rpc_df['timestamp'], utc=True)
+        # 3. THE ULTIMATE DATETIME FIX:
+        # Convert to string first (in case Excel made them floats/serial numbers)
+        tx_df['timestamp'] = tx_df['timestamp'].astype(str)
+        rpc_df['timestamp'] = rpc_df['timestamp'].astype(str)
         
-        # Sort data by timestamp (required for merge_asof).
-        tx_df = tx_df.sort_values("timestamp")
-        rpc_df = rpc_df.sort_values("timestamp")
+        # Parse using format='mixed' to handle almost any date string, and force to UTC
+        tx_df['timestamp'] = pd.to_datetime(tx_df['timestamp'], format='mixed', errors='coerce', utc=True)
+        rpc_df['timestamp'] = pd.to_datetime(rpc_df['timestamp'], format='mixed', errors='coerce', utc=True)
+        
+        # Drop rows with corrupted dates and sort
+        tx_df = tx_df.dropna(subset=['timestamp']).sort_values("timestamp")
+        rpc_df = rpc_df.dropna(subset=['timestamp']).sort_values("timestamp")
+        
+        print(f"[DEBUG] After date parsing -> TX: {len(tx_df)}, RPC: {len(rpc_df)}")
 
-        # --- Temporal Alignment ---
-        # Merge transaction data with the most recent RPC metric recorded prior to the transaction.
-        # tolerance='10m' discards metrics older than 10 minutes to prevent using stale data.
+        # 4. Merge Data
+        print("[INFO] Aligning transaction outcomes with network state...")
         df = pd.merge_asof(
             tx_df, rpc_df, 
             on="timestamp", 
             by="rpc_id", 
-            direction="backward", 
-            tolerance=pd.Timedelta("10m")
+            direction="backward",
+            tolerance=pd.Timedelta("15m") # Added 15m tolerance so it only matches relevant times
         )
         
-        # --- Filtering ---
-        # Remove rows with missing features or failed transactions.
-        df = df.dropna(subset=self.features)
+        print(f"[DEBUG] Rows after Merge -> {len(df)}")
+        
+        # 5. Final Filtering
+        df = df.dropna(subset=self.features + [self.target])
+        print(f"[DEBUG] Rows after dropping NaNs -> {len(df)}")
+        
         df = df[df['status'] == 1]
+        print(f"[DEBUG] Rows after status==1 filter -> {len(df)}")
         
-        print(f"[INFO] Training dataset size: {len(df)} matched samples.")
+        print(f"[INFO] Final Training dataset size: {len(df)} matched samples.")
         
+        if len(df) == 0:
+            print("[ERROR] 0 matched samples remaining.")
+            return
+            
         # --- Model Fitting ---
         X = df[self.features]
         y = df[self.target]
         
-        # Split dataset: 80% Training, 20% Testing.
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
         
         self.model.fit(X_train, y_train)
@@ -89,28 +97,5 @@ class RPCLatencyPredictor:
         mae = mean_absolute_error(y_test, preds)
         
         print(f"[RESULT] Model Mean Absolute Error (MAE): +/- {mae:.4f} seconds")
-        
-        # Serialize model to disk.
         self.model.save_model(MODEL_PATH)
         print(f"[SUCCESS] Model saved to {MODEL_PATH}")
-
-    def predict(self, live_metrics: pd.DataFrame) -> pd.DataFrame:
-        """
-        Performs inference on real-time data.
-        
-        Args:
-            live_metrics: A DataFrame containing current network status.
-            
-        Returns:
-            DataFrame with an appended 'predicted_duration' column.
-        """
-        if not os.path.exists(MODEL_PATH):
-            raise FileNotFoundError("Model file not found. Please run the training script first.")
-            
-        self.model.load_model(MODEL_PATH)
-        
-        # Generate predictions using the trained features.
-        predictions = self.model.predict(live_metrics[self.features])
-        
-        live_metrics['predicted_duration'] = predictions
-        return live_metrics.sort_values("predicted_duration")
