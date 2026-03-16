@@ -3,7 +3,6 @@
 
 **Authors:** Advik Divekar · Aaryan Harsora · Paras Jadhav · Satvik Jain
 **Institution:** Mukesh Patel School of Technology Management and Engineering, Mumbai
-**Testnet:** Ethereum Sepolia (Chain ID: 11155111)
 
 ---
 
