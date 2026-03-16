@@ -2,6 +2,8 @@
 ## Blockchain Latency Optimization via Machine Learning
 
 **Authors:** Advik Divekar · Aaryan Harsora · Paras Jadhav · Satvik Jain
+
+
 **Institution:** Mukesh Patel School of Technology Management and Engineering, Mumbai
 
 ---
