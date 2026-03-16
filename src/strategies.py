@@ -14,12 +14,11 @@ class PingBasedStrategy:
     def get_best_rpc(self, live_df: pd.DataFrame) -> str:
         if live_df.empty:
             return "infura" # Fallback
-        # Sort strictly by the lowest ping
         best = live_df.sort_values(by="latency_ms", ascending=True).iloc[0]
         return best["rpc_id"]
 
 class SmartRouterStrategy:
-    """Your Research Model: XGBoost prediction using Latency + Block Lag."""
+    """Your Research Model: XGBoost Classifier for Tail Risk Avoidance."""
     def __init__(self):
         self.predictor = RPCLatencyPredictor()
 
@@ -27,8 +26,9 @@ class SmartRouterStrategy:
         if live_df.empty:
             return "infura" # Fallback
         
-        # Ask the AI for the lowest predicted confirmation time
+        # Ask the AI for the probability of missing a slot (>20s)
         predictions = self.predictor.predict(live_df)
-        best = predictions.sort_values(by="predicted_duration", ascending=True).iloc[0]
-        return best["rpc_id"]
         
+        # Pick the provider with the LOWEST probability of being slow
+        best = predictions.sort_values(by="prob_slow", ascending=True).iloc[0]
+        return best["rpc_id"]
