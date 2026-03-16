@@ -5,7 +5,7 @@ from config.settings import RPC_PROVIDERS
 from src.database import db
 
 class NetworkHealthMonitor:
-    def __init__(self, interval=30):
+    def __init__(self, interval=10):
         self.interval = interval
         self.running = False
 

@@ -58,7 +58,8 @@ class RPCLatencyPredictor:
         rpc_df = rpc_df.dropna(subset=['timestamp']).sort_values("timestamp")
         
         print(f"[DEBUG] After date parsing -> TX: {len(tx_df)}, RPC: {len(rpc_df)}")
-
+    
+    
         # 4. Merge Data
         print("[INFO] Aligning transaction outcomes with network state...")
         df = pd.merge_asof(
@@ -99,3 +100,4 @@ class RPCLatencyPredictor:
         print(f"[RESULT] Model Mean Absolute Error (MAE): +/- {mae:.4f} seconds")
         self.model.save_model(MODEL_PATH)
         print(f"[SUCCESS] Model saved to {MODEL_PATH}")
+
