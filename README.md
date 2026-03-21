@@ -1,4 +1,4 @@
-# RPC Smart Router — Project README
+# RPC Smart Router
 ## Blockchain Latency Optimization via Machine Learning
 
 **Authors:** Advik Divekar · Aaryan Harsora · Paras Jadhav · Satvik Jain
